@@ -6,6 +6,6 @@
     "start": "node socket-server.js"
   },
   "dependencies": {
-    "socket.io": "^4.7.2"
+    "socket.io": "^4.8.1"
   }
 }

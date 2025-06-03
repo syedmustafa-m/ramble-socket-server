@@ -1,5 +1,3 @@
-
-
 const { Server } = require("socket.io");
 const http = require("http");
 
@@ -7,45 +5,72 @@ const server = http.createServer();
 
 const io = new Server(server, {
   cors: {
-    origin: ["https://ramble-khaki.vercel.app/"], // ✅ your frontend domain
-    methods: ["GET", "POST"]
+    origin: ["http://192.168.18.43:3000", "https://ramble-app.vercel.app"],
+    methods: ["GET", "POST"],
   },
   path: "/socket.io",
 });
 
-
 const usersQueue = [];
+
+function tryMatch(socket) {
+  const available = usersQueue.filter((s) => s !== socket && s.partner == null);
+  const match = available.shift();
+
+  if (match) {
+    // Remove match from queue
+    const index = usersQueue.indexOf(match);
+    if (index !== -1) usersQueue.splice(index, 1);
+
+    socket.partner = match;
+    match.partner = socket;
+
+    socket.emit("partnerFound");
+    match.emit("partnerFound");
+  } else {
+    // No match found, add to queue
+    if (!usersQueue.includes(socket)) usersQueue.push(socket);
+  }
+}
 
 io.on("connection", (socket) => {
   console.log("✅ User connected:", socket.id);
-  usersQueue.push(socket);
+  tryMatch(socket);
 
-  if (usersQueue.length >= 2) {
-    const [user1, user2] = usersQueue.splice(0, 2);
-    user1.partner = user2;
-    user2.partner = user1;
+  socket.on("message", (msg) => {
+    if (socket.partner) {
+      socket.partner.emit("message", msg);
+    }
+  });
 
-    user1.emit("partnerFound");
-    user2.emit("partnerFound");
+  socket.on("skip", () => {
+    console.log("↪️ Skip requested:", socket.id);
 
-    user1.on("message", (msg) => user2.emit("message", msg));
-    user2.on("message", (msg) => user1.emit("message", msg));
-  }
+    const oldPartner = socket.partner;
+    if (oldPartner) {
+      oldPartner.partner = null;
+      oldPartner.emit("partnerLeft");
+    }
+
+    socket.partner = null;
+
+    tryMatch(socket);
+  });
 
   socket.on("disconnect", () => {
     console.log("❌ User disconnected:", socket.id);
-    const i = usersQueue.indexOf(socket);
-    if (i !== -1) usersQueue.splice(i, 1);
+    const index = usersQueue.indexOf(socket);
+    if (index !== -1) usersQueue.splice(index, 1);
+
     if (socket.partner) {
       socket.partner.emit("partnerLeft");
       socket.partner.partner = null;
+      tryMatch(socket.partner);
     }
   });
 });
 
 const PORT = process.env.PORT || 3001;
-
 server.listen(PORT, () => {
-  console.log("🔌 Socket.IO server running on port 3001");
+  console.log(`🔌 Socket.IO server running on port ${PORT}`);
 });
-
